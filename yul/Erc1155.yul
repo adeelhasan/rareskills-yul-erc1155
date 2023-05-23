@@ -144,9 +144,15 @@ object "ERC1155" {
 
                 require(gt(fromBalance, amount))
 
+                //if to is a contract, then check if interface is implemented
+                //before the balances get updated, ERC165 is going to be used here
+
+
+
                 let toSlot := balancesByTokenSlot(to, tokenId)
                 let toBalance := sload(toSlot)
 
+                //update balances
                 sstore(fromSlot, sub(fromBalance, amount))
                 sstore(toSlot, safeAdd(toBalance, amount))
 
@@ -232,7 +238,7 @@ object "ERC1155" {
             }
             function safeSub(a, b) -> r {
                 r := sub(a, b)
-                if or(gt(a, r), gt(b, a)) { revert(0, 0) }
+                if (gt(r, a)) { revert(0, 0) }
             }
             function calledByOwner() -> cbo {
                 cbo := eq(owner(), caller())
