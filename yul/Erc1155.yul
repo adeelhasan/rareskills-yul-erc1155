@@ -32,9 +32,7 @@ object "ERC1155" {
                     returnUint(balanceOf(decodeAsAddress(0),decodeAsUint(1)))
                 }
                 case 0x1f7fdffa {   //mintBatch(address, uint256[] ids, uint256[] amounts, bytes)
-                    //mintBatch(decodeAsAddress(0),decodeAsUint(1),decodeAsUint(2),decodeAsUint(3))
                     mintBatch()
-
                 }
                 case 0x9b642de1 {   //setUri
                     setUri(0x24)
@@ -45,11 +43,14 @@ object "ERC1155" {
                 case 0xf242432a {
                     safeTransferFrom()
                 }
-
-                default {
-                    revert(0, 0)
+                case 0x2eb2c2d6 {
+                    safeBatchTransferFrom()
                 }
 
+                default {
+                    //revert(0, 0)
+                    revertWithReason("unimplemented selector", 22)
+                }
 
             function setUri(lengthOffset) {
                 //require(calledByOwner())
@@ -58,8 +59,6 @@ object "ERC1155" {
 
                 //emit uri event                
             }
-
-
 
             function uri() {
                 getStoredString(slotNoForUriLength())
@@ -74,13 +73,15 @@ object "ERC1155" {
 
             function mint(to, id, amount) {
                 revertIfZeroAddress(to)
-                //increment balance in the correct storage slot
-                //storage slot is hash of offset, address and id
-
                 addToTokenBalance(to, id, amount)
 
+                //check if the recipient was ok to receive
+                //safeTransferCheck
+                if gt(extcodesize(to), 0) {
+                    //_checkIfValidReceiverForSingle(caller(), 0, to, id, amount, 0)
+                }
 
-                //emit event                
+                //emit event
                 emitTransferSingle(owner(),0x00,to,id,amount)
             }
 
@@ -92,62 +93,47 @@ object "ERC1155" {
 
             //function mintBatch(operator, ids, amounts, batch) {
             function mintBatch() {
-                //only operator is decoded as an address
-                //they will count as the owner of the tokens being minted
-                //invalid()
-
-                //let numberOfIds := calldataload(0x24)
-                //let numberOfAmounts := calldatacopy(add(0x44, mul(numberOfIds,0x20), calldatacopy(0x04,0x20));
-                //logToConsoleNumber(0x00, calldatasize())
-                //logToConsole(0x00, "testing", 7)
-
-                //logCallData(0x00, 0x04, sub(calldatasize(),4))
-
                 let to := decodeAsAddress(0)
                 let idsOffset := add(decodeAsUint(1), 0x04)
-                let amountOffset := add(decodeAsUint(2), 0x04)
+                let amountsOffset := add(decodeAsUint(2), 0x04)
                 let dataOffset := add(decodeAsUint(3), 0x04)
-                //logToConsoleNumber(0x00, idsOffset)
-                //logToConsoleNumber(0x00, amountOffset)
 
                 let numberOfIds := calldataload(idsOffset)
-                 let numberOfAmounts := calldataload(amountOffset)
-                //let lengthOfData := decodeAsUint(dataOffset)
-
-                //logToConsoleNumber(0x00, numberOfAmounts)
-                //logToConsoleNumber(0x00, numberOfIds)
+                let numberOfAmounts := calldataload(amountsOffset)
 
                 require(eq(numberOfAmounts,numberOfIds))
 
                 idsOffset := add(idsOffset, 0x20)
-                amountOffset := add(amountOffset, 0x20)
+                amountsOffset := add(amountsOffset, 0x20)
 
                 for { let i := 0 } lt(i, numberOfIds) { i:= add(i, 1) } {
                     let id := calldataload(add(idsOffset, mul(i, 0x20)))
-                    let amount := calldataload(add(amountOffset, mul(i, 0x20)))
-                    //logToConsoleNumber(0x00, i)
-                    //logToConsoleNumber(0x00, id)
-                    //logToConsoleNumber(0x00, amount)
+                    let amount := calldataload(add(amountsOffset, mul(i, 0x20)))
                     addToTokenBalance(to, id, amount)
                 }
 
+                if gt(extcodesize(to), 0) {
+                    _checkIfValidReceiverForBatch(caller(), 0x00, to, idsOffset, amountsOffset, dataOffset)
+                }
             }
 
+
+
             function safeTransferFrom() {
+                let operator := caller()
                 let from := decodeAsAddress(0)
                 let to := decodeAsAddress(1)
                 let tokenId := decodeAsUint(2)
                 let amount := decodeAsUint(3)
+                let bytesOffset := decodeAsUint(4)
 
                 let fromSlot := balancesByTokenSlot(from, tokenId)
                 let fromBalance := sload(fromSlot)
 
+                revertIfZeroAddress(to)
                 require(gt(fromBalance, amount))
 
-                //if to is a contract, then check if interface is implemented
-                //before the balances get updated, ERC165 is going to be used here
-
-
+                let dataLength := 0//decodeAsUint(5)
 
                 let toSlot := balancesByTokenSlot(to, tokenId)
                 let toBalance := sload(toSlot)
@@ -156,8 +142,105 @@ object "ERC1155" {
                 sstore(fromSlot, sub(fromBalance, amount))
                 sstore(toSlot, safeAdd(toBalance, amount))
 
-                //transmit event
+                //if to is a contract, then check if the onReceiveHook responds correctly
+                if gt(extcodesize(to), 0) {
+                    _checkIfValidReceiverForSingle(caller(), from, to, tokenId, amount, bytesOffset)
+                }
 
+                //transmit event
+            }
+
+            //function safeBatchTransferFrom(address from, address to, uint256[] memory ids, uint256[] memory amounts, bytes memory data)
+            function safeBatchTransferFrom() {
+                let from := decodeAsAddress(0)
+                let to := decodeAsAddress(1)
+
+                revertIfZeroAddress(to)
+
+                let idsOffset := add(decodeAsUint(2), 0x04)
+                let amountOffset := add(decodeAsUint(3), 0x04)
+                let dataOffset := add(decodeAsUint(4), 0x04)
+
+                let numberOfIds := calldataload(idsOffset)
+                let numberOfAmounts := calldataload(amountOffset)
+
+
+                require(eq(numberOfAmounts,numberOfIds))
+
+                idsOffset := add(idsOffset, 0x20)
+                amountOffset := add(amountOffset, 0x20)
+
+                for { let i := 0 } lt(i, numberOfIds) { i:= add(i, 1) } {
+                    let tokenId := calldataload(add(idsOffset, mul(i, 0x20)))
+                    let amount := calldataload(add(amountOffset, mul(i, 0x20)))
+                    
+                    let fromSlot := balancesByTokenSlot(from, tokenId)
+                    let fromBalance := sload(fromSlot)
+    
+                    require(gt(fromBalance, amount))
+    
+                    let toSlot := balancesByTokenSlot(to, tokenId)
+                    let toBalance := sload(toSlot)
+    
+                    //update balances
+                    sstore(fromSlot, safeSub(fromBalance, amount))
+                    sstore(toSlot, safeAdd(toBalance, amount))
+    
+                }
+
+                //if gt(extcodesize(to), 0) {
+                //    _checkIfValidReceiverForBatch(caller(), 0x00, to, idsOffset, amountsOffset, dataOffset)
+                //}
+
+                //emit event
+            }
+
+            function _checkIfValidReceiverForBatch(operator, from, to, idsOffset, amountsOffset, dataOffset) {
+                let validatorHookInterface := 0xf23a6e61
+                mstore(0x00, shl(0xe0, 0xf23a6e61))
+                mstore(0x24, operator)
+                mstore(0x44, from)
+                mstore(0x64, 0x00)
+                mstore(0x84, 0x00)
+                mstore(0xa4, 0xc4)
+                let payloadLength := 0xe4
+                mstore(0xc4, 0x00)
+
+                //invalid()
+
+                let success := staticcall(gas(), to, 0x00, payloadLength, 0x00, 0x20)
+                requireWithMessage(success, "call to receiver failed", 23)
+                let returnedData := decodeAsSelector(mload(0x00)) //get the first 4 bytes
+                requireWithMessage(eq(returnedData, validatorHookInterface), "returned selector didnt match", 29)
+            }
+
+
+            function _checkIfValidReceiverForSingle(operator, from, to, id, amount, bytesOffset) {
+                let validatorHookInterface := 0xf23a6e61
+                mstore(0x00, shl(0xe0, 0xf23a6e61))
+                mstore(0x24, operator)
+                mstore(0x44, from)
+                mstore(0x64, id)
+                mstore(0x84, amount)
+                mstore(0xa4, 0xc4)
+                let payloadLength := 0xe4
+                // if gt(bytesOffset, 0) {
+                //     let dataLength := 0
+                //     if gt(dataLength,0) {
+                //         //iterate to load up all the bytes from data
+                //         let bytesChunk := decodeAsUint(6)
+                //         mstore(0xe4, bytesChunk)
+                //     }
+                // }
+                //TBD: if there is bytes data to forward, then this will need to change
+                mstore(0xc4, 0x00)
+
+                //invalid()
+
+                let success := staticcall(gas(), to, 0x00, payloadLength, 0x00, 0x20)
+                requireWithMessage(success, "call to receiver failed", 23)
+                let returnedData := decodeAsSelector(mload(0x00)) //get the first 4 bytes
+                requireWithMessage(eq(returnedData, validatorHookInterface), "returned selector didnt match", 29)
             }
 
             /* -------- events ---------- */
@@ -198,7 +281,11 @@ object "ERC1155" {
 
             /* ---------- calldata decoding functions ----------- */
             function selector() -> s {
-                s := div(calldataload(0), 0x100000000000000000000000000000000000000000000000000000000)
+                s := decodeAsSelector(calldataload(0))
+            }
+
+            function decodeAsSelector(value) -> s {
+                s := div(value, 0x100000000000000000000000000000000000000000000000000000000)
             }
 
             function decodeAsAddress(offset) -> v {
@@ -238,7 +325,7 @@ object "ERC1155" {
             }
             function safeSub(a, b) -> r {
                 r := sub(a, b)
-                if (gt(r, a)) { revert(0, 0) }
+                if gt(r, a) { revert(0, 0) }
             }
             function calledByOwner() -> cbo {
                 cbo := eq(owner(), caller())
@@ -250,6 +337,21 @@ object "ERC1155" {
                 if iszero(condition) { revert(0, 0) }
             }
 
+            function revertWithReason(reason, reasonLength) {
+                let ptr := 0x00
+                mstore(ptr, 0x08c379a000000000000000000000000000000000000000000000000000000000) // Selector for method Error(string)
+                mstore(add(ptr, 0x04), 0x20) // String offset
+                mstore(add(ptr, 0x24), reasonLength) // Revert reason length
+                mstore(add(ptr, 0x44), reason)
+                revert(ptr, 0x64)
+            }
+
+            //reason has to be at most 32 bytes
+            function requireWithMessage(condition, reason, reasonLength) {
+                if iszero(condition) { 
+                    revertWithReason(reason, reasonLength)
+                 }
+            }
 
             //restricted to a string literal
             function logToConsole(memPtr, message, lengthOfMessage) {
@@ -282,7 +384,16 @@ object "ERC1155" {
                 //invalid()
                 pop(staticcall(gas(), 0x000000000000000000636F6e736F6c652e6c6f67, startPos, add(0x44,length), 0x00, 0x00))
                 //needs a reset: memPtr := startPos
+            }
 
+            function logMemory(memPtr, startingPointInMemory, length) {
+                mstore(memPtr, shl(0xe0, 0xe17bf956))
+                memPtr := add(memPtr, 0x04)     //selector
+                mstore(memPtr, 0x20)
+                memPtr := add(memPtr, 0x20)     //offset of logging call
+                mstore(memPtr, length)    //length of data to log
+                memPtr := add(memPtr, 0x20) 
+                pop(staticcall(gas(), 0x000000000000000000636F6e736F6c652e6c6f67, startingPointInMemory, add(0x44,length), 0x00, 0x00))
             }
 
             function logToConsoleNumber(memPtr, _number) {
@@ -347,6 +458,9 @@ object "ERC1155" {
   }
 
   /*
+
+https://jeancvllr.medium.com/solidity-tutorial-all-about-bytes-9d88fdb22676
+
 https://ethereum.stackexchange.com/questions/131283/how-do-i-decode-call-data-in-solidity
   https://github.com/goncaloMagalhaes/erc20-low-level/blob/develop/yul/ERC20Permit.yul
   https://gist.github.com/teddav/e5c77d36d76567631ba5898a64a79079

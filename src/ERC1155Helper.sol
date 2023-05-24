@@ -14,6 +14,7 @@ interface IERC1155 {
     function safeTransferFrom(address from, address to, uint256 id, uint256 amount, bytes memory data) external;
     function safeBatchTransferFrom(address from, address to, uint256[] memory ids, uint256[] memory amounts, bytes memory data) external;
 
+    function setApprovalForAll(address operator, bool approved) external;
 }
 
 contract ERC1155Helper {
@@ -53,5 +54,9 @@ contract ERC1155Helper {
     function safeBatchTransferFrom(address from, address to, uint256[] memory ids, uint256[] memory amounts, bytes memory data) public{
         target.safeBatchTransferFrom(from, to, ids, amounts, data);
     }
+
+    function setApprovalForAll(address operator, bool approved) external {
+        target.setApprovalForAll(operator, approved);
+    }    
 }
 

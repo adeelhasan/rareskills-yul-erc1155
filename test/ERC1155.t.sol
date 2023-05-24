@@ -5,13 +5,42 @@ import "forge-std/console.sol";
 import "forge-std/Test.sol";
 import "src/ERC1155Helper.sol";
 import "./lib/YulDeployer.sol";
+import "lib/solmate/src/tokens/ERC1155.sol";
 
-interface ERC1155 {}
+
+//copied from 
+contract ReceiverHelper is ERC1155TokenReceiver {
+    function onERC1155Received(
+        address,
+        address,
+        uint256,
+        uint256,
+        bytes calldata
+    ) external pure override returns (bytes4) {
+        return ERC1155TokenReceiver.onERC1155Received.selector;
+    }
+
+    function onERC1155BatchReceived(
+        address,
+        address,
+        uint256[] calldata,
+        uint256[] calldata,
+        bytes calldata
+    ) external pure override returns (bytes4) {
+        return ERC1155TokenReceiver.onERC1155BatchReceived.selector;
+    }    
+
+    function grantApprovalForAllTo(address erc1155Contract, address operator, bool approved) public {
+        ERC1155(erc1155Contract).setApprovalForAll(operator, approved);
+    }
+}
+
+contract NonReceiverHelper {}
 
 contract ERC1155Test is Test {
     YulDeployer yulDeployer = new YulDeployer();
 
-    ERC1155 c;
+    IERC1155 c;
     ERC1155Helper ch;
 
     address testAccount1;
@@ -22,13 +51,12 @@ contract ERC1155Test is Test {
     event URI(string _value, uint256 indexed _id);
 
     function setUp() public {
-        c = ERC1155(yulDeployer.deployContract("ERC1155"));
-        ch = new ERC1155Helper(IERC1155(address(c)));
+        c = IERC1155(yulDeployer.deployContract("ERC1155"));
+        ch = new ERC1155Helper(c);
 
         testAccount1 = vm.addr(0xABCD);
         testAccount2 = vm.addr(0xBCDA);
         testAccount3 = vm.addr(0xCDAB);
-
     }
 
     function testOwnership() public {
@@ -36,13 +64,12 @@ contract ERC1155Test is Test {
     }
 
     function testMintSingle() public {
-        address owner = address(yulDeployer);
         vm.expectEmit(true, true, true, true);
-        emit TransferSingle(owner, address(0), address(this), 1, 20);
+        emit TransferSingle(address(yulDeployer), address(0), testAccount1, 1, 20);
 
-        ch.mint(address(this), 1, 20);
+        ch.mint(testAccount1, 1, 20);
 
-        uint256 balance = ch.balanceOf(address(this), 1);
+        uint256 balance = ch.balanceOf(testAccount1, 1);
         require(balance == 20, "balance not as expected");
     }
 
@@ -59,16 +86,37 @@ contract ERC1155Test is Test {
 
     }
 
-    function testSafeTransferFrom() public {
-
+    function testSafeTransferToEOA() public {
         ch.mint(testAccount1, 1, 20);
-
         vm.prank(testAccount1);
         ch.safeTransferFrom(testAccount1, testAccount2, 1, 10, "");
-
         require(ch.balanceOf(testAccount2, 1) == 10, "balance not as expected");
-
     }
+
+    function testSafeTransferToContract() public {
+        ReceiverHelper receiverContract = new ReceiverHelper();
+        ch.mint(testAccount1, 1, 20);
+        vm.prank(testAccount1);
+        ch.safeTransferFrom(testAccount1, address(receiverContract), 1, 10, "");
+        require(ch.balanceOf(address(receiverContract), 1) == 10, "balance not as expected");
+    }
+
+    function testSafeTransferBatchToEOA() public {
+        ch.mint(testAccount1, 1, 20);
+        ch.mint(testAccount1, 2, 40);
+        ch.mint(testAccount1, 3, 60);
+        ch.safeBatchTransferFrom(testAccount1, testAccount2, ids, amounts, "");
+        require(ch.balanceOf(testAccount2, 1) == 10, "balance not as expected");
+        require(ch.balanceOf(testAccount2, 2) == 20, "balance not as expected");
+        require(ch.balanceOf(testAccount2, 3) == 30, "balance not as expected");
+    }
+
+    function testMintToContract() public {
+        ReceiverHelper receiverContract = new ReceiverHelper();
+        ch.mint(address(receiverContract), 1, 20);
+        require(ch.balanceOf(address(receiverContract), 1) == 20, "balance not as expected");
+    }    
+
 
     //test mint with a receiver check
     //test transfer with a receiver check
