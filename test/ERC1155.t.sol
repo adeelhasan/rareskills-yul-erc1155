@@ -47,6 +47,12 @@ contract ERC1155Test is Test {
     address testAccount2;
     address testAccount3;
 
+    ReceiverHelper receiverContract;
+    address receiverContractAddress; 
+    
+    uint256[] ids = [1, 2, 3];
+    uint256[] amounts = [10, 20, 30];
+
     event TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value);
     event URI(string _value, uint256 indexed _id);
 
@@ -57,6 +63,9 @@ contract ERC1155Test is Test {
         testAccount1 = vm.addr(0xABCD);
         testAccount2 = vm.addr(0xBCDA);
         testAccount3 = vm.addr(0xCDAB);
+
+        receiverContract = new ReceiverHelper();
+        receiverContractAddress = address(receiverContract);
     }
 
     function testOwnership() public {
@@ -73,8 +82,6 @@ contract ERC1155Test is Test {
         require(balance == 20, "balance not as expected");
     }
 
-    uint256[] ids = [1, 2, 3];
-    uint256[] amounts = [10, 20, 30];    //
     function testMintBatch() public {
         
         bytes memory data = "";
@@ -94,11 +101,10 @@ contract ERC1155Test is Test {
     }
 
     function testSafeTransferToContract() public {
-        ReceiverHelper receiverContract = new ReceiverHelper();
         ch.mint(testAccount1, 1, 20);
         vm.prank(testAccount1);
-        ch.safeTransferFrom(testAccount1, address(receiverContract), 1, 10, "");
-        require(ch.balanceOf(address(receiverContract), 1) == 10, "balance not as expected");
+        ch.safeTransferFrom(testAccount1, receiverContractAddress, 1, 10, "");
+        require(ch.balanceOf(receiverContractAddress, 1) == 10, "balance not as expected");
     }
 
     function testSafeTransferBatchToEOA() public {
@@ -112,10 +118,19 @@ contract ERC1155Test is Test {
     }
 
     function testMintToContract() public {
-        ReceiverHelper receiverContract = new ReceiverHelper();
-        ch.mint(address(receiverContract), 1, 20);
-        require(ch.balanceOf(address(receiverContract), 1) == 20, "balance not as expected");
-    }    
+         ch.mint(receiverContractAddress, 1, 20);
+        require(ch.balanceOf(receiverContractAddress, 1) == 20, "balance not as expected");
+    }
+
+    function testSafeTransferBatchToContract() public {
+        ch.mint(testAccount1, 1, 20);
+        ch.mint(testAccount1, 2, 40);
+        ch.mint(testAccount1, 3, 60);
+        ch.safeBatchTransferFrom(testAccount1, receiverContractAddress, ids, amounts, "");
+        require(ch.balanceOf(receiverContractAddress, 1) == 10, "balance not as expected");
+        require(ch.balanceOf(receiverContractAddress, 2) == 20, "balance not as expected");
+        require(ch.balanceOf(receiverContractAddress, 3) == 30, "balance not as expected");
+    }
 
 
     //test mint with a receiver check
@@ -132,9 +147,26 @@ contract ERC1155Test is Test {
     }
 
 
-    function testBalance() public {
+    function testBalanceOfBatch() public {
         // uint256 balance = ch.balanceOf(address(this),1);
         // require(balance > 0, "balance was unexpected");
+        ch.mint(testAccount2, 1, 10);
+        ch.mint(receiverContractAddress, 5, 10);
+
+        address[] memory accounts = new address[](1);
+        accounts[0] = testAccount2;
+        //accounts[1] = testAccount2;
+        //accounts[2] = testAccount3;
+        uint256[] memory ids_ = new uint256[](1);
+        ids_[0] = 1;
+        //ids_[1] = 2;
+        //ids_[2] = 5;
+        // accounts.push(testAccount1);
+        // accounts.push(testAccount2);
+        // accounts.push(testAccount3);
+
+        uint256[] memory result = ch.balanceOfBatch(accounts, ids_);
+        //console.log(result[0]);
     }
 
 }

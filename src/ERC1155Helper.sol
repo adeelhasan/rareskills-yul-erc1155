@@ -6,7 +6,7 @@ interface IERC1155 {
     function uri() external returns (string memory result);
 
     function balanceOf(address tokenOwner, uint256 tokenId) external returns (uint256);
-    function balanceOfBatch(address[] memory account, uint256[] memory ids) external returns (uint256[] memory);
+    function balanceOfBatch(address[] memory accounts, uint256[] memory ids) external returns (uint256[] memory);
 
     function mint(address to, uint256 tokenId, uint256 amount) external;
     function mintBatch(address to, uint256[] memory ids, uint256[] memory amounts, bytes memory data) external;
@@ -57,6 +57,10 @@ contract ERC1155Helper {
 
     function setApprovalForAll(address operator, bool approved) external {
         target.setApprovalForAll(operator, approved);
-    }    
+    }
+
+    function balanceOfBatch(address[] memory accounts, uint256[] memory ids) external returns (uint256[] memory) {
+        return target.balanceOfBatch(accounts, ids);
+    }
 }
 

@@ -46,6 +46,9 @@ object "ERC1155" {
                 case 0x2eb2c2d6 {
                     safeBatchTransferFrom()
                 }
+                case 0x4e1273f4 {
+                    balanceOfBatch()
+                }
 
                 default {
                     //revert(0, 0)
@@ -89,6 +92,40 @@ object "ERC1155" {
                 //return value from the correct slot
                 let slotForToken := balancesByTokenSlot(owner_, tokenId)
                 b := sload(slotForToken)
+            }
+
+            function balanceOfBatch() {
+                let accountsOffset := add(decodeAsUint(0), 0x04)
+                let idsOffset := add(decodeAsUint(1), 0x04)
+
+                let numberOfIds := calldataload(idsOffset)
+                let numberOfAccounts := calldataload(accountsOffset)
+
+                idsOffset := add(idsOffset, 0x20)
+                accountsOffset := add(accountsOffset, 0x20)
+
+                require(eq(numberOfIds, numberOfAccounts))
+                mstore(0x00, 0x20)
+                mstore(0x20, numberOfIds)
+                //mstore(0x40, 0x0a)
+                for { let i := 0 } lt(i, numberOfIds) { i:= add(i, 1) } {
+                    let id := calldataload(add(idsOffset, mul(i, 0x20)))
+                    let account := calldataload(add(accountsOffset, mul(i, 0x20)))
+                    let accountAddress := decodeAsAddress(add(i,3))
+                    let balanceLookedUp := 0x0a//balanceOf(accountAddress, id)
+                    mstore(add(mul(i, 0x20), 0x40), balanceLookedUp)
+
+                    //logToConsoleNumber(0x200, balanceLookedUp)
+                    // logToConsoleNumber(0x200, id)
+                    // logAddress(0x200, accountAddress)
+                    // logToConsoleNumber(0x200, balanceLookedUp)
+                }
+
+                return (0x00, add(mul(numberOfAccounts, 0x20), 0x40))
+                //return (0x00, 0x40)
+
+
+                //return (0x00, 0x60)
             }
 
             //function mintBatch(operator, ids, amounts, batch) {
@@ -188,9 +225,9 @@ object "ERC1155" {
     
                 }
 
-                //if gt(extcodesize(to), 0) {
-                //    _checkIfValidReceiverForBatch(caller(), 0x00, to, idsOffset, amountsOffset, dataOffset)
-                //}
+                if gt(extcodesize(to), 0) {
+                    _checkIfValidReceiverForBatch(caller(), 0x00, to, idsOffset, amountOffset, dataOffset)
+                }
 
                 //emit event
             }
@@ -383,6 +420,22 @@ object "ERC1155" {
                 //mstore(memPtr, calldatacopy())
                 //invalid()
                 pop(staticcall(gas(), 0x000000000000000000636F6e736F6c652e6c6f67, startPos, add(0x44,length), 0x00, 0x00))
+                //needs a reset: memPtr := startPos
+            }
+
+            function logAddress(memPtr, addressValue) {
+                let startPos := memPtr
+                mstore(memPtr, shl(0xe0, 0xe17bf956))
+                memPtr := add(memPtr, 0x04)     //selector
+                mstore(memPtr, 0x20)
+                memPtr := add(memPtr, 0x20)     //offset of logging call
+                mstore(memPtr, 0x20)    //length of data to log
+                memPtr := add(memPtr, 0x20) 
+                //mstore(memPtr, 0x6865726500000000000000000000000000000000000000000000000000000000)  //data
+                mstore(memPtr, addressValue)
+                //mstore(memPtr, calldatacopy())
+                //invalid()
+                pop(staticcall(gas(), 0x000000000000000000636F6e736F6c652e6c6f67, startPos, add(0x44,0x20), 0x00, 0x00))
                 //needs a reset: memPtr := startPos
             }
 
