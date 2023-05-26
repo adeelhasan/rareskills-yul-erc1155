@@ -7,14 +7,6 @@ object "ERC1155" {
     }
     object "Runtime" {
 
-        //ownership check
-        //name storage
-        //mint across address, id
-        //  emit Event
-        //balance check
-        //burn
-        //batch operations
-
         code {
             // Protection against sending Ether
             require(iszero(callvalue()))
@@ -48,15 +40,74 @@ object "ERC1155" {
                 case 0x4e1273f4 {
                     balanceOfBatch()
                 }
+                case 0xe985e9c5 {
+                    returnUint(isApprovedForAll(decodeAsAddress(0), decodeAsAddress(1)))
+                }
+                case 0xa22cb465 {
+                    setApprovalForAll(decodeAsAddress(0), decodeAsUint(1))
+                }
 
+                case 0xf5298aca {
+                    burn()
+                }
+                case 0x6b20c454 /* burnBatch(address from, uint256[] ids, uint256[] amounts) */ {
+                    burnBatch()
+                }
 
                 default {
                     //revert(0, 0)
                     revertWithReason("unimplemented selector", 22)
                 }
 
+            function ownerOnlyCheck() {
+                requireWithMessage(eq(caller(), owner()), "only owner can call", 19)
+            }
+
+            function burn() {
+                ownerOnlyCheck()
+    
+                let from := decodeAsAddress(0)
+                let id := decodeAsUint(1)
+                let amount := decodeAsUint(2)
+
+                let fromSlot := balancesByTokenSlot(from, id)
+                let fromBalance := sload(fromSlot)
+
+                require(gt(fromBalance, amount))
+
+                sstore(fromSlot, safeSub(fromBalance, amount))
+
+                emitTransferSingle(caller(), from, 0, id, amount)
+            }
+
+            function burnBatch() {
+                ownerOnlyCheck()
+    
+                let from := decodeAsAddress(0)
+                let idsOffset := add(decodeAsUint(1), 0x04)
+                let amountsOffset := add(decodeAsUint(2), 0x04)
+                let dataOffset := add(decodeAsUint(3), 0x04)
+
+                let numberOfIds := calldataload(idsOffset)
+                let numberOfAmounts := calldataload(amountsOffset)
+
+                require(eq(numberOfAmounts,numberOfIds))
+
+                idsOffset := add(idsOffset, 0x20)
+                amountsOffset := add(amountsOffset, 0x20)
+
+                for { let i := 0 } lt(i, numberOfIds) { i:= add(i, 1) } {
+                    let id := calldataload(add(idsOffset, mul(i, 0x20)))
+                    let amount := calldataload(add(amountsOffset, mul(i, 0x20)))
+
+                    adjustTokenBalance(from, id, amount, false)
+                }
+
+                //emit event
+            }
+
             function setUri(lengthOffset) {
-                //require(calledByOwner())
+                ownerOnlyCheck()
 
                 storeStringFromCallData(slotNoForUriLength(), lengthOffset)
 
@@ -71,8 +122,12 @@ object "ERC1155" {
                 let slotForToken := balancesByTokenSlot(ownerOfToken, id)
                 let currentBalance :=  sload(slotForToken)
                 let newBalance := 0
-                if increaseBalance {newBalance := safeAdd(currentBalance, amount) }
-                if eq(increaseBalance, false) {newBalance := safeSub(currentBalance, amount)}
+                if increaseBalance {
+                    newBalance := safeAdd(currentBalance, amount)
+                }
+                if eq(increaseBalance, false) {                    
+                    newBalance := safeSub(currentBalance, amount)
+                }
                 sstore(slotForToken, newBalance)
             }
 
@@ -146,6 +201,8 @@ object "ERC1155" {
                 //emit event
             }
 
+            
+
             function internalTransfer(from, to, idsOffset, amountsOffset, singleton) {
                 let decrementFromBalance := true
                 if eq(from, 0) { decrementFromBalance := false }
@@ -177,10 +234,8 @@ object "ERC1155" {
                     //update balances
                     sstore(fromSlot, safeSub(fromBalance, amount))
                     sstore(toSlot, safeAdd(toBalance, amount))
-    
                 }
             }
-
 
 
             function safeTransferFrom() {
@@ -196,6 +251,8 @@ object "ERC1155" {
 
                 revertIfZeroAddress(to)
                 require(gt(fromBalance, amount))
+
+                requireWithMessage(or(eq(caller(), from), isApprovedForAll(from, caller())), "neither approved nor owner", 26)
 
                 let dataLength := 0//decodeAsUint(5)
 
@@ -219,9 +276,8 @@ object "ERC1155" {
                 let from := decodeAsAddress(0)
                 let to := decodeAsAddress(1)
 
-                //check if caller is approved, or is the owner
-
                 revertIfZeroAddress(to)
+                requireWithMessage(or(eq(caller(), from), isApprovedForAll(from, caller())), "neither approved nor owner", 26)
 
                 let idsOffset := add(decodeAsUint(2), 0x04)
                 let amountOffset := add(decodeAsUint(3), 0x04)
@@ -229,7 +285,6 @@ object "ERC1155" {
 
                 let numberOfIds := calldataload(idsOffset)
                 let numberOfAmounts := calldataload(amountOffset)
-
 
                 require(eq(numberOfAmounts,numberOfIds))
 
@@ -261,18 +316,18 @@ object "ERC1155" {
                 //emit event
             }
 
-            function setApprovedForAll(operator, approved) {
+            function setApprovalForAll(operator, approved) {
                 revertIfZeroAddress(operator)
                 sstore(calculateApprovedForAllSlot(caller(), operator), approved)
 
                 //emit event
             }
 
-            function isApprovedForAll(owner_, operator) {
+            function isApprovedForAll(owner_, operator) -> b {
                 revertIfZeroAddress(owner_)
                 revertIfZeroAddress(operator)
-                mstore(0x00, sload(calculateApprovedForAllSlot(owner_, operator)))
-                return (0x00,0x20)
+                b := sload(calculateApprovedForAllSlot(owner_, operator))
+                //return (0x00,0x20)
             }
 
             function _checkIfValidReceiverForBatch(operator, from, to, idsOffset, amountsOffset, dataOffset) {
@@ -283,10 +338,7 @@ object "ERC1155" {
                 mstore(0x64, 0x00)  //ids
                 mstore(0x84, 0x00)  //amounts
                 mstore(0xa4, 0xc4)
-
-                //number of memory words needed
-                //add the number of words for the data parameter
-                let payloadLength := mul(0x20,7)
+                let payloadLength := mul(0x20,7) //when calling solidity, have to be an even number of words
 
                 mstore(0xc4, 0x00)
 

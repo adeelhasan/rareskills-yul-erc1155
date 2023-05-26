@@ -66,6 +66,14 @@ contract ERC1155Test is Test {
 
         receiverContract = new ReceiverHelper();
         receiverContractAddress = address(receiverContract);
+
+        //make the helper contract an operator for testAccount1
+        //need to call the yul contract directly, not through the wrapper
+        //as there is no pass through for the immediate contract
+        vm.prank(testAccount1);
+        bytes memory callDataBytes = abi.encodeWithSignature("setApprovalForAll(address,bool)", address(ch), true);
+        (bool success, ) = address(c).call{gas: 100000, value: 0}(callDataBytes);
+        require(success,"approved for all failed");
     }
 
     function testOwnership() public {
@@ -93,15 +101,30 @@ contract ERC1155Test is Test {
 
     }
 
+    function expectFailForNonOperatorTransfer() public {
+        ch.mint(testAccount2, 1, 20);
+
+        vm.expectRevert();
+        ch.safeTransferFrom(testAccount2, testAccount2, 1, 10, "");
+    }
+
+    function expectFailForNonOperatorBatchTransfer() public {
+        ch.mint(testAccount2, 1, 20);
+        ch.mint(testAccount2, 2, 40);
+        ch.mint(testAccount2, 3, 60);
+
+        ch.safeBatchTransferFrom(testAccount2, testAccount1, ids, amounts, "");
+    }    
+
     function testSafeTransferToEOA() public {
         ch.mint(testAccount1, 1, 20);
-        vm.prank(testAccount1);
         ch.safeTransferFrom(testAccount1, testAccount2, 1, 10, "");
         require(ch.balanceOf(testAccount2, 1) == 10, "balance not as expected");
     }
 
     function testSafeTransferToContract() public {
-        ch.mint(testAccount1, 1, 20);
+        ch.mint(testAccount1, 1, 20);        
+
         vm.prank(testAccount1);
         ch.safeTransferFrom(testAccount1, receiverContractAddress, 1, 10, "");
         require(ch.balanceOf(receiverContractAddress, 1) == 10, "balance not as expected");
@@ -111,6 +134,7 @@ contract ERC1155Test is Test {
         ch.mint(testAccount1, 1, 20);
         ch.mint(testAccount1, 2, 40);
         ch.mint(testAccount1, 3, 60);
+
         ch.safeBatchTransferFrom(testAccount1, testAccount2, ids, amounts, "");
         require(ch.balanceOf(testAccount2, 1) == 10, "balance not as expected");
         require(ch.balanceOf(testAccount2, 2) == 20, "balance not as expected");
@@ -132,27 +156,23 @@ contract ERC1155Test is Test {
         require(ch.balanceOf(receiverContractAddress, 3) == 30, "balance not as expected");
     }
 
-
-    //test mint with a receiver check
-    //test transfer with a receiver check
-    // why is the event URI skipped in implementations? 
     function testUri() public {
         string memory uri = "http://www.merrygoaround.com";
         // vm.expectEmit(true, false, true, false);
         // emit URI(uri, 1);
-        ch.setUri(uri);
+        vm.prank(address(yulDeployer));
+        bytes memory callDataBytes = abi.encodeWithSignature("setUri(string)", uri);
+        (bool success, ) = address(c).call{gas: 100000, value: 0}(callDataBytes);
+        require(success, "setUri call failed");
 
         string memory result = ch.uri();
         require(keccak256(abi.encodePacked(result)) == keccak256(abi.encodePacked(uri)), "string not as expected");
     }
 
-
     function testBalanceOfBatch() public {
         ch.mint(testAccount2, 1, 3);
         ch.mint(receiverContractAddress, 5, 7);
         ch.mint(testAccount1, 1000, 29);
-
-        require(ch.balanceOf(testAccount1, 1000) == 29, "not minted correctly");
 
         uint256 numberOfElements = 3;
         address[] memory accounts = new address[](numberOfElements);
@@ -168,6 +188,44 @@ contract ERC1155Test is Test {
         require(result[0] == 3, "balance not as expected");
         require(result[1] == 7, "balance not as expected");
         require(result[2] == 29, "balance not as expected");
+    }
+
+    function testBurn() public {
+        ch.mint(testAccount2, 1, 20);
+
+        vm.prank(address(yulDeployer));
+        bytes memory callDataBytes = abi.encodeWithSignature("burn(address,uint256,uint256)", testAccount2, 1, 10);
+        (bool success, ) = address(c).call{gas: 100000, value: 0}(callDataBytes);
+        require(success, "burn failed");
+
+        require(ch.balanceOf(testAccount2, 1) == 10, "balance not as expected");
+    }
+
+    function testBurnBatch() public {
+        ch.mint(testAccount1, 1, 20);
+        ch.mint(testAccount1, 2, 40);
+        ch.mint(testAccount1, 3, 60);
+
+        uint256 numberOfElements = 3;
+        uint256[] memory ids_ = new uint256[](numberOfElements);
+        ids_[0] = 1;
+        ids_[1] = 2;
+        ids_[2] = 3;
+        uint256[] memory amounts_ = new uint256[](numberOfElements);
+        amounts_[0] = 5;
+        amounts_[1] = 25;
+        amounts_[2] = 33;
+
+        vm.prank(address(yulDeployer));
+        bytes memory callDataBytes = abi.encodeWithSignature("burnBatch(address,uint256[],uint256[])", testAccount1, ids_, amounts_);
+        (bool success, ) = address(c).call{gas: 100000, value: 0}(callDataBytes);
+        require(success, "burn batch failed");
+
+        require(ch.balanceOf(testAccount1, 1) == 15, "balance not as expected");
+        require(ch.balanceOf(testAccount1, 2) == 15, "balance not as expected");
+        require(ch.balanceOf(testAccount1, 3) == 27, "balance not as expected");
+
+        // question_ what should happen if the balance is 0 within a batch?
     }
 
 }
