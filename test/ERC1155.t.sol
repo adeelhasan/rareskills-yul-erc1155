@@ -148,25 +148,26 @@ contract ERC1155Test is Test {
 
 
     function testBalanceOfBatch() public {
-        // uint256 balance = ch.balanceOf(address(this),1);
-        // require(balance > 0, "balance was unexpected");
-        ch.mint(testAccount2, 1, 10);
-        ch.mint(receiverContractAddress, 5, 10);
+        ch.mint(testAccount2, 1, 3);
+        ch.mint(receiverContractAddress, 5, 7);
+        ch.mint(testAccount1, 1000, 29);
 
-        address[] memory accounts = new address[](1);
+        require(ch.balanceOf(testAccount1, 1000) == 29, "not minted correctly");
+
+        uint256 numberOfElements = 3;
+        address[] memory accounts = new address[](numberOfElements);
         accounts[0] = testAccount2;
-        //accounts[1] = testAccount2;
-        //accounts[2] = testAccount3;
-        uint256[] memory ids_ = new uint256[](1);
+        accounts[1] = receiverContractAddress;
+        accounts[2] = testAccount1;
+        uint256[] memory ids_ = new uint256[](numberOfElements);
         ids_[0] = 1;
-        //ids_[1] = 2;
-        //ids_[2] = 5;
-        // accounts.push(testAccount1);
-        // accounts.push(testAccount2);
-        // accounts.push(testAccount3);
+        ids_[1] = 5;
+        ids_[2] = 1000;
 
         uint256[] memory result = ch.balanceOfBatch(accounts, ids_);
-        //console.log(result[0]);
+        require(result[0] == 3, "balance not as expected");
+        require(result[1] == 7, "balance not as expected");
+        require(result[2] == 29, "balance not as expected");
     }
 
 }
