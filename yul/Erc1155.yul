@@ -26,7 +26,7 @@ object "ERC1155" {
                     mintBatch()
                 }
                 case 0x9b642de1 {   //setUri
-                    setUri(0x24)
+                    setUri()
                 }
                 case 0xeac989f8 { 
                     uri()
@@ -103,15 +103,23 @@ object "ERC1155" {
                     adjustTokenBalance(from, id, amount, false)
                 }
 
-                //emit event
+                emitTransferBatch(caller(), from, 0, numberOfIds, idsOffset, amountsOffset)
             }
 
-            function setUri(lengthOffset) {
+            // TODO: clear out existing slots, if that is going to be necessary
+            // QUESTION: choosing between loading all to memory in one go, or doing it piecemeal
+            // QUESTION: unable to solve why one test is failing
+            function setUri() {
                 ownerOnlyCheck()
 
-                storeStringFromCallData(slotNoForUriLength(), lengthOffset)
+                storeStringFromCallData(slotNoForUriLength(), 0x24)
 
                 //emit uri event
+                let signatureHash := 0x6bb7ff708619ba0610cba295a58592e0451dee2622938c8755667688daf3529b
+                let stringLength := calldataload(0x24)
+                let lengthOfData := add(mul(roundToWord(stringLength), 0x20), 0x40)
+                calldatacopy(0x00, 0x04, lengthOfData)
+                log2(0x00, lengthOfData, signatureHash, 0)
             }
 
             function uri() {
@@ -157,7 +165,7 @@ object "ERC1155" {
                 idsOffset := add(idsOffset, 0x20)
                 accountsOffset := add(accountsOffset, 0x20)
                 
-                let returnOffset := 0x80 //memPtr
+                let returnOffset := 0x80
                 mstore(returnOffset, 0x20)
                 mstore(add(returnOffset, 0x20), numberOfIds)
 
@@ -198,7 +206,7 @@ object "ERC1155" {
                     _checkIfValidReceiverForBatch(caller(), 0x00, to, idsOffset, amountsOffset, dataOffset)
                 }
 
-                //emit event
+                emitTransferBatch(caller(), 0, to, numberOfIds, idsOffset, amountsOffset)
             }
 
             
@@ -268,7 +276,7 @@ object "ERC1155" {
                     _checkIfValidReceiverForSingle(caller(), from, to, id, amount, bytesOffset)
                 }
 
-                //emit event
+                emitTransferSingle(caller(), from, to, id, amount)
             }
 
             //function safeBatchTransferFrom(address from, address to, uint256[] memory ids, uint256[] memory amounts, bytes memory data)
@@ -303,24 +311,47 @@ object "ERC1155" {
                     let toSlot := balancesByTokenSlot(to, id)
                     let toBalance := sload(toSlot)
     
-                    //update balances
                     sstore(fromSlot, safeSub(fromBalance, amount))
                     sstore(toSlot, safeAdd(toBalance, amount))
-    
                 }
 
                 if gt(extcodesize(to), 0) {
                     _checkIfValidReceiverForBatch(caller(), 0x00, to, idsOffset, amountOffset, dataOffset)
                 }
 
-                //emit event
+                emitTransferBatch(caller(), from, to, numberOfIds, idsOffset, amountOffset)
+            }
+
+            function emitTransferBatch(operator, from, to, numberOfIds, idsOffset, amountOffset) {
+                //event TransferBatch(address indexed _operator, address indexed _from, address indexed _to, uint256[] _ids, uint256[] _values);
+                let signatureHash := 0x4a39dc06d4c0dbc64b70af90fd698a233a518aa5d07e595d983b8c0526c8f7fb
+                let idsOffsetInEvent := 0x40
+                let amountsOffsetInEvent := add(mul(numberOfIds, 0x20), 0x40)
+                mstore(0x00, 0x40)
+                mstore(idsOffsetInEvent, numberOfIds) //length of array
+                mstore(0x20, amountsOffsetInEvent)
+                mstore(amountsOffsetInEvent, numberOfIds)
+
+                idsOffsetInEvent := add(idsOffsetInEvent, 0x20)
+                amountsOffsetInEvent := add(amountsOffsetInEvent, 0x20)
+
+                for { let j := 0 } lt(j, numberOfIds) { j:= add(j, 1) } {
+                    let id := calldataload(add(idsOffset, mul(j, 0x20)))
+                    let amount := calldataload(add(amountOffset, mul(j, 0x20)))
+                    mstore(add(idsOffsetInEvent, mul(j, 0x20)), id)
+                    mstore(add(amountsOffsetInEvent, mul(j, 0x20)), amount)
+                }
+
+                let dataLength := mul(add(mul(numberOfIds, 0x20),0x40),2)
+
+                log4(0x00, dataLength, signatureHash, caller(), from, to)
             }
 
             function setApprovalForAll(operator, approved) {
                 revertIfZeroAddress(operator)
                 sstore(calculateApprovedForAllSlot(caller(), operator), approved)
 
-                //emit event
+                emitApprovalForAll(caller(), operator, approved)
             }
 
             function isApprovedForAll(owner_, operator) -> b {
@@ -330,6 +361,7 @@ object "ERC1155" {
                 //return (0x00,0x20)
             }
 
+            //TODO: the ids and amounts have to be copied over to data fields
             function _checkIfValidReceiverForBatch(operator, from, to, idsOffset, amountsOffset, dataOffset) {
                 let validatorHookInterface := 0xf23a6e61
                 mstore(0x00, shl(0xe0, 0xf23a6e61))
@@ -342,11 +374,9 @@ object "ERC1155" {
 
                 mstore(0xc4, 0x00)
 
-                //invalid()
-
                 let success := staticcall(gas(), to, 0x00, payloadLength, 0x00, 0x20)
                 requireWithMessage(success, "call to receiver failed", 23)
-                let returnedData := decodeAsSelector(mload(0x00)) //get the first 4 bytes
+                let returnedData := decodeAsSelector(mload(0x00))
                 requireWithMessage(eq(returnedData, validatorHookInterface), "returned selector didnt match", 29)
             }
 
@@ -383,18 +413,17 @@ object "ERC1155" {
             /* -------- events ---------- */
             function emitTransferSingle(operator, from, to, id, amount) {
                 let signatureHash := 0xc3d58168c5ae7397731d063d5bbf3d657854427343f4c083240f7aacaa2d0f62
-                emitEvent3(signatureHash, operator, from, to, id, amount)
+                mstore(0x00, id)
+                mstore(0x20, amount)
+                log4(0, 0x40, signatureHash, operator, from, to)
+            }
+    
+            function emitApprovalForAll(owner_, operator, approved) {
+                let signatureHash := 0x17307eab39ab6107e8899845ad3d59bd9653f200f220920489ca2b5937696c31
+                mstore(0x00, approved)
+                log3(0x00, 0x20, signatureHash, owner_, operator)
             }
 
-            function emitEvent2(signatureHash, indexed1, indexed2, nonIndexed) {
-                mstore(0, nonIndexed)
-                log3(0, 0x20, signatureHash, indexed1, indexed2)
-            }
-            function emitEvent3(signatureHash, indexed1, indexed2, indexed3, nonIndexed1, nonIndexed2) {
-                mstore(0, nonIndexed1)
-                mstore(0x20, nonIndexed2)
-                log4(0, 0x40, signatureHash, indexed1, indexed2, indexed3)
-            }
 
             /* -------- storage layout ---------- */
             function ownerSlot() -> p { p := 0 }
@@ -479,6 +508,13 @@ object "ERC1155" {
             function require(condition) {
                 if iszero(condition) { revert(0, 0) }
             }
+
+            function roundToWord(length) -> numberOfWords {
+                numberOfWords := div(length, 0x20)
+                if gt(mod(length,0x20),0) {
+                    numberOfWords := add(numberOfWords, 1)
+                }
+            }            
 
             function revertWithReason(reason, reasonLength) {
                 let ptr := 0x00
@@ -615,6 +651,16 @@ object "ERC1155" {
         }
     }
   }
+
+/*
+
+uri in the constructor
+internal functions separated out
+more comments added
+other cleanup
+
+*/
+
 
   /*
 

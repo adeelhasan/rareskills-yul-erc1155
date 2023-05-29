@@ -190,6 +190,7 @@ object "Sandbox" {
                 let signatureHash := 0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925
                 emitEvent(signatureHash, from, spender, amount)
             }
+
             function emitEvent(signatureHash, indexed1, indexed2, nonIndexed) {
                 mstore(0, nonIndexed)
                 log3(0, 0x20, signatureHash, indexed1, indexed2)
@@ -268,6 +269,7 @@ object "Sandbox" {
     }
   }
 
+  //https://github.com/andreitoma8/learn-yul
   //good article https://medium.com/@novablitz/storing-structs-is-costing-you-gas-774da988895e
 
                   //QUESTION: storage writes out one word at time, and you read one slot at a time too
