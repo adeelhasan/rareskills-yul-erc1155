@@ -1,3 +1,12 @@
+/*
+QUESTION: uri in the constructor ?
+QUESTION: unable to solve why one test is failing :
+forge test -vvvv  --match-test  "testSafeTransferBatchToEOA"
+QUESTION: string literals only way to pass to logging?
+internal functions separated out
+more comments added, specifically function signatures
+*/
+
 object "ERC1155" {
     code {
 
@@ -63,52 +72,7 @@ object "ERC1155" {
                 requireWithMessage(eq(caller(), owner()), "only owner can call", 19)
             }
 
-            function burn() {
-                ownerOnlyCheck()
-    
-                let from := decodeAsAddress(0)
-                let id := decodeAsUint(1)
-                let amount := decodeAsUint(2)
-
-                let fromSlot := balancesByTokenSlot(from, id)
-                let fromBalance := sload(fromSlot)
-
-                require(gt(fromBalance, amount))
-
-                sstore(fromSlot, safeSub(fromBalance, amount))
-
-                emitTransferSingle(caller(), from, 0, id, amount)
-            }
-
-            function burnBatch() {
-                ownerOnlyCheck()
-    
-                let from := decodeAsAddress(0)
-                let idsOffset := add(decodeAsUint(1), 0x04)
-                let amountsOffset := add(decodeAsUint(2), 0x04)
-                let dataOffset := add(decodeAsUint(3), 0x04)
-
-                let numberOfIds := calldataload(idsOffset)
-                let numberOfAmounts := calldataload(amountsOffset)
-
-                require(eq(numberOfAmounts,numberOfIds))
-
-                idsOffset := add(idsOffset, 0x20)
-                amountsOffset := add(amountsOffset, 0x20)
-
-                for { let i := 0 } lt(i, numberOfIds) { i:= add(i, 1) } {
-                    let id := calldataload(add(idsOffset, mul(i, 0x20)))
-                    let amount := calldataload(add(amountsOffset, mul(i, 0x20)))
-
-                    adjustTokenBalance(from, id, amount, false)
-                }
-
-                emitTransferBatch(caller(), from, 0, numberOfIds, idsOffset, amountsOffset)
-            }
-
             // TODO: clear out existing slots, if that is going to be necessary
-            // QUESTION: choosing between loading all to memory in one go, or doing it piecemeal
-            // QUESTION: unable to solve why one test is failing
             function setUri() {
                 ownerOnlyCheck()
 
@@ -209,43 +173,6 @@ object "ERC1155" {
                 emitTransferBatch(caller(), 0, to, numberOfIds, idsOffset, amountsOffset)
             }
 
-            
-
-            function internalTransfer(from, to, idsOffset, amountsOffset, singleton) {
-                let decrementFromBalance := true
-                if eq(from, 0) { decrementFromBalance := false }
-                
-                let numberOfIds := calldataload(idsOffset)
-                let numberOfAmounts := calldataload(amountsOffset)
-                if singleton { 
-                    numberOfIds := 1
-                    numberOfAmounts := 1
-                 }
-
-                 requireWithMessage(eq(numberOfAmounts, numberOfIds), "mismatched array counts", 23)
-
-                 idsOffset := add(idsOffset, 0x20)
-                 amountsOffset := add(amountsOffset, 0x20)
-
-                 for { let i := 0 } lt(i, numberOfIds) { i:= add(i, 1) } {
-                    let id := calldataload(add(idsOffset, mul(i, 0x20)))
-                    let amount := calldataload(add(amountsOffset, mul(i, 0x20)))
-                    
-                    let fromSlot := balancesByTokenSlot(from, id)
-                    let fromBalance := sload(fromSlot)
-    
-                    require(gt(fromBalance, amount))
-    
-                    let toSlot := balancesByTokenSlot(to, id)
-                    let toBalance := sload(toSlot)
-    
-                    //update balances
-                    sstore(fromSlot, safeSub(fromBalance, amount))
-                    sstore(toSlot, safeAdd(toBalance, amount))
-                }
-            }
-
-
             function safeTransferFrom() {
                 let operator := caller()
                 let from := decodeAsAddress(0)
@@ -306,7 +233,7 @@ object "ERC1155" {
                     let fromSlot := balancesByTokenSlot(from, id)
                     let fromBalance := sload(fromSlot)
     
-                    require(gt(fromBalance, amount))
+                    requireWithMessage(gt(fromBalance, amount), "insufficient balance", 20)
     
                     let toSlot := balancesByTokenSlot(to, id)
                     let toBalance := sload(toSlot)
@@ -320,6 +247,49 @@ object "ERC1155" {
                 }
 
                 emitTransferBatch(caller(), from, to, numberOfIds, idsOffset, amountOffset)
+            }
+
+            function burn() {
+                ownerOnlyCheck()
+    
+                let from := decodeAsAddress(0)
+                let id := decodeAsUint(1)
+                let amount := decodeAsUint(2)
+
+                let fromSlot := balancesByTokenSlot(from, id)
+                let fromBalance := sload(fromSlot)
+
+                require(gt(fromBalance, amount))
+
+                sstore(fromSlot, safeSub(fromBalance, amount))
+
+                emitTransferSingle(caller(), from, 0, id, amount)
+            }
+
+            function burnBatch() {
+                ownerOnlyCheck()
+    
+                let from := decodeAsAddress(0)
+                let idsOffset := add(decodeAsUint(1), 0x04)
+                let amountsOffset := add(decodeAsUint(2), 0x04)
+                let dataOffset := add(decodeAsUint(3), 0x04)
+
+                let numberOfIds := calldataload(idsOffset)
+                let numberOfAmounts := calldataload(amountsOffset)
+
+                require(eq(numberOfAmounts,numberOfIds))
+
+                idsOffset := add(idsOffset, 0x20)
+                amountsOffset := add(amountsOffset, 0x20)
+
+                for { let i := 0 } lt(i, numberOfIds) { i:= add(i, 1) } {
+                    let id := calldataload(add(idsOffset, mul(i, 0x20)))
+                    let amount := calldataload(add(amountsOffset, mul(i, 0x20)))
+
+                    adjustTokenBalance(from, id, amount, false)
+                }
+
+                emitTransferBatch(caller(), from, 0, numberOfIds, idsOffset, amountsOffset)
             }
 
             function emitTransferBatch(operator, from, to, numberOfIds, idsOffset, amountOffset) {
@@ -408,7 +378,7 @@ object "ERC1155" {
                 requireWithMessage(success, "call to receiver failed", 23)
                 let returnedData := decodeAsSelector(mload(0x00)) //get the first 4 bytes
                 requireWithMessage(eq(returnedData, validatorHookInterface), "returned selector didnt match", 29)
-            }
+            }            
 
             /* -------- events ---------- */
             function emitTransferSingle(operator, from, to, id, amount) {
@@ -542,11 +512,8 @@ object "ERC1155" {
                 memPtr := add(memPtr, 0x20) //offset
                 mstore(memPtr, lengthOfMessage)        //length
                 memPtr := add(memPtr, 0x20) 
-                //mstore(memPtr, 0x6865726500000000000000000000000000000000000000000000000000000000)  //data
                 mstore(memPtr, message)
-                //invalid()
                 pop(staticcall(gas(), 0x000000000000000000636F6e736F6c652e6c6f67, startPos, 0x64, 0x00, 0x00))
-                //needs a reset: memPtr := startPos
             }
 
             function logCallData(memPtr, offset, length) {
@@ -557,12 +524,8 @@ object "ERC1155" {
                 memPtr := add(memPtr, 0x20)     //offset of logging call
                 mstore(memPtr, length)    //length of data to log
                 memPtr := add(memPtr, 0x20) 
-                //mstore(memPtr, 0x6865726500000000000000000000000000000000000000000000000000000000)  //data
                 calldatacopy(memPtr, offset, length)
-                //mstore(memPtr, calldatacopy())
-                //invalid()
                 pop(staticcall(gas(), 0x000000000000000000636F6e736F6c652e6c6f67, startPos, add(0x44,length), 0x00, 0x00))
-                //needs a reset: memPtr := startPos
             }
 
             function logAddress(memPtr, addressValue) {
@@ -573,12 +536,8 @@ object "ERC1155" {
                 memPtr := add(memPtr, 0x20)     //offset of logging call
                 mstore(memPtr, 0x20)    //length of data to log
                 memPtr := add(memPtr, 0x20) 
-                //mstore(memPtr, 0x6865726500000000000000000000000000000000000000000000000000000000)  //data
                 mstore(memPtr, addressValue)
-                //mstore(memPtr, calldatacopy())
-                //invalid()
                 pop(staticcall(gas(), 0x000000000000000000636F6e736F6c652e6c6f67, startPos, add(0x44,0x20), 0x00, 0x00))
-                //needs a reset: memPtr := startPos
             }
 
             function logMemory(memPtr, startingPointInMemory, length) {
@@ -597,9 +556,7 @@ object "ERC1155" {
                 memPtr := add(memPtr, 0x04) //selector
                 mstore(memPtr, _number)
                 pop(staticcall(gas(), 0x000000000000000000636F6e736F6c652e6c6f67, startPos, 0x24, 0x00, 0x00))
-                //needs a reset: memPtr := startPos
             }
-
 
             //utility function for saving strings
             function storeStringFromCallData(slotNoForLength, callDataOffsetForLength) {
@@ -652,17 +609,44 @@ object "ERC1155" {
     }
   }
 
-/*
-
-uri in the constructor
-internal functions separated out
-more comments added
-other cleanup
-
-*/
 
 
   /*
+            function internalTransfer(from, to, idsOffset, amountsOffset, singleton) {
+                let decrementFromBalance := true
+                if eq(from, 0) { decrementFromBalance := false }
+                
+                let numberOfIds := calldataload(idsOffset)
+                let numberOfAmounts := calldataload(amountsOffset)
+                if singleton { 
+                    numberOfIds := 1
+                    numberOfAmounts := 1
+                 }
+
+                 requireWithMessage(eq(numberOfAmounts, numberOfIds), "mismatched array counts", 23)
+
+                 idsOffset := add(idsOffset, 0x20)
+                 amountsOffset := add(amountsOffset, 0x20)
+
+                 for { let i := 0 } lt(i, numberOfIds) { i:= add(i, 1) } {
+                    let id := calldataload(add(idsOffset, mul(i, 0x20)))
+                    let amount := calldataload(add(amountsOffset, mul(i, 0x20)))
+                    
+                    let fromSlot := balancesByTokenSlot(from, id)
+                    let fromBalance := sload(fromSlot)
+    
+                    require(gt(fromBalance, amount))
+    
+                    let toSlot := balancesByTokenSlot(to, id)
+                    let toBalance := sload(toSlot)
+    
+                    //update balances
+                    sstore(fromSlot, safeSub(fromBalance, amount))
+                    sstore(toSlot, safeAdd(toBalance, amount))
+                }
+            }
+
+
 
 https://jeancvllr.medium.com/solidity-tutorial-all-about-bytes-9d88fdb22676
 

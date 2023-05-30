@@ -127,7 +127,6 @@ contract ERC1155Test is Test {
         contractWrapper.safeTransferFrom(testAccount1, address(nonReceiver), 1, 10, "");
     }
 
-
     function testSafeTransferBatchToEOA() public {
         contractWrapper.mint(testAccount1, 1, 20);
         contractWrapper.mint(testAccount1, 2, 40);
@@ -245,22 +244,31 @@ contract ERC1155Test is Test {
         require(success,"approved for all failed");
     }
 
-    //transfer to a non ERC1155 receiver contract
-    //test for batch
-    //test for minting
-    //do back and forth transfer, then check balance
-    //move helpers to another file, reject for a id; reject for particular data
-    //
+    function testFailIfTransferingBeyondBalance() public {
+        contractWrapper.mint(testAccount1, 1, 10);
+        contractWrapper.safeTransferFrom(testAccount1, testAccount2, 1, 11, "");
+    }
+
+    function testFailIfTransferingBeyondBalance2() public {
+        contractWrapper.safeTransferFrom(testAccount1, testAccount2, 1, 11, "");
+    }
+
+    function testFailBatchTransferBeyondBalance() public {
+        contractWrapper.mint(testAccount1, 1, 20);
+        contractWrapper.mint(testAccount1, 2, 19);
+        contractWrapper.mint(testAccount1, 3, 60);
+
+        contractWrapper.safeBatchTransferFrom(testAccount1, testAccount2, ids, amounts, "");
+    }
+
+    function testFailBurnBeyondBalance() public {
+        contractWrapper.mint(testAccount2, 1, 20);
+
+        vm.prank(address(yulDeployer));
+        bytes memory callDataBytes = abi.encodeWithSignature("burn(address,uint256,uint256)", testAccount2, 1, 40);
+        (bool success, ) = address(erc1155Contract).call{gas: 100000, value: 0}(callDataBytes);
+        require(success, "burn failed");
+    }    
 
 }
 
-
-        // bytes memory callDataBytes = abi.encodeWithSignature("mint()");
-        // (bool success, bytes memory data) = address(c).call{gas: 100000, value: 0}(callDataBytes);
-        // require(success,"mint failed");
-        // callDataBytes = abi.encodeWithSignature("balanceOf()");
-        // (success, data) = address(c).call{gas: 100000, value: 0}(callDataBytes);
-        // uint256 result = abi.decode(data, (uint256));
-        // assertEq(result, 2);
-
-        //console.logBytes(data);
