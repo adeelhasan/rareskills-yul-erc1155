@@ -19,6 +19,10 @@ interface IERC1155 {
 
     function burn(address from, uint256 id, uint256 amount) external;
     function burnBatch(address from, uint256[] memory ids, uint256[] memory amounts) external;
+
+    function logToConsoleTests(string memory message, uint256 number, address account) external;
+    function logToConsoleTests(string memory message) external;
+    function logToConsoleTests(string memory message, uint256 number, uint256[] memory ids) external;
 }
 
 contract ERC1155Wrapper {
@@ -77,6 +81,16 @@ contract ERC1155Wrapper {
 
     function burnBatch(address from, uint256[] memory ids, uint256[] memory amounts) external {
         target.burnBatch(from, ids, amounts);
+    }
+
+    function logToConsoleTests(string memory message, uint256 number, address account) external {
+        target.logToConsoleTests(message, number, account);
+    }
+    function logToConsoleTests(string memory message) external {
+        target.logToConsoleTests(message);
+    }
+    function logToConsoleTests(string memory message, uint256 number, uint256[] memory ids) external {
+        target.logToConsoleTests(message, number, ids);
     }
 
 }

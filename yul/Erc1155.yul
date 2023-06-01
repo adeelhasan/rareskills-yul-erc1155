@@ -1,10 +1,5 @@
 /*
 QUESTION: uri in the constructor ?
-QUESTION: unable to solve why one test is failing :
-forge test -vvvv  --match-test  "testSafeTransferBatchToEOA"
-QUESTION: string literals only way to pass to logging?
-internal functions separated out
-more comments added, specifically function signatures
 */
 
 object "ERC1155" {
@@ -17,7 +12,7 @@ object "ERC1155" {
     object "Runtime" {
 
         code {
-            // Protection against sending Ether
+            // ether is not accepted
             require(iszero(callvalue()))
 
             // Dispatcher
@@ -28,41 +23,45 @@ object "ERC1155" {
                 case 0x156e29f6 {    //mint
                     mint(decodeAsAddress(0),decodeAsUint(1),decodeAsUint(2))
                 }
-                case 0x00fdd58e {    //balanceOf
-                    returnUint(balanceOf(decodeAsAddress(0),decodeAsUint(1)))
-                }
                 case 0x1f7fdffa {   //mintBatch(address, uint256[] ids, uint256[] amounts, bytes)
                     mintBatch()
                 }
-                case 0x9b642de1 {   //setUri
+                case 0x9b642de1 {   //setUri(string memory)
                     setUri()
                 }
-                case 0xeac989f8 { 
+                case 0xeac989f8 {   //uri() returns(string memory)
                     uri()
                 }
-                case 0xf242432a {
+                case 0xf242432a {   //safeTransferFrom(address _from, address _to, uint256 _id, uint256 _value, bytes calldata _data)
                     safeTransferFrom()
                 }
-                case 0x2eb2c2d6 {
+                case 0x2eb2c2d6 {   //safeBatchTransferFrom(address _from, address _to, uint256[] calldata _ids, uint256[] calldata _values, bytes calldata _data)
                     safeBatchTransferFrom()
                 }
-                case 0x4e1273f4 {
+                case 0x00fdd58e {    //balanceOf(address _owner, uint256 _id) external view returns (uint256)
+                    returnUint(balanceOf(decodeAsAddress(0),decodeAsUint(1)))
+                }
+                case 0x4e1273f4 {    //balanceOfBatch(address[] calldata _owners, uint256[] calldata _ids) external view returns (uint256[] memory)
                     balanceOfBatch()
                 }
-                case 0xe985e9c5 {
+                case 0xe985e9c5 {   //isApprovedForAll(address _owner, address _operator) external view returns (bool)
                     returnUint(isApprovedForAll(decodeAsAddress(0), decodeAsAddress(1)))
                 }
-                case 0xa22cb465 {
+                case 0xa22cb465 {   //setApprovalForAll(address _operator, bool _approved);
                     setApprovalForAll(decodeAsAddress(0), decodeAsUint(1))
                 }
-
                 case 0xf5298aca {
                     burn()
                 }
                 case 0x6b20c454 /* burnBatch(address from, uint256[] ids, uint256[] amounts) */ {
                     burnBatch()
                 }
-
+                case 0xce8cc46a {
+                    logToConsoleTests()
+                }
+                case 0xec0f2d9c {
+                    logToConsoleTests()
+                }
                 default {
                     //revert(0, 0)
                     revertWithReason("unimplemented selector", 22)
@@ -90,22 +89,9 @@ object "ERC1155" {
                 getStoredString(slotNoForUriLength())
             }
 
-            function adjustTokenBalance(ownerOfToken, id, amount, increaseBalance) {
-                let slotForToken := balancesByTokenSlot(ownerOfToken, id)
-                let currentBalance :=  sload(slotForToken)
-                let newBalance := 0
-                if increaseBalance {
-                    newBalance := safeAdd(currentBalance, amount)
-                }
-                if eq(increaseBalance, false) {                    
-                    newBalance := safeSub(currentBalance, amount)
-                }
-                sstore(slotForToken, newBalance)
-            }
-
             function mint(to, id, amount) {
                 revertIfZeroAddress(to)
-                adjustTokenBalance(to, id, amount, true)
+                _adjustTokenBalance(to, id, amount, true)
 
                 if gt(extcodesize(to), 0) {
                     _checkIfValidReceiverForSingle(caller(), 0, to, id, amount, 0)
@@ -145,7 +131,6 @@ object "ERC1155" {
                 return (returnOffset, add(mul(numberOfAccounts, 0x20), 0x40))
             }
 
-            //function mintBatch(operator, ids, amounts, batch) {
             function mintBatch() {
                 let to := decodeAsAddress(0)
                 let idsOffset := add(decodeAsUint(1), 0x04)
@@ -163,7 +148,7 @@ object "ERC1155" {
                 for { let i := 0 } lt(i, numberOfIds) { i:= add(i, 1) } {
                     let id := calldataload(add(idsOffset, mul(i, 0x20)))
                     let amount := calldataload(add(amountsOffset, mul(i, 0x20)))
-                    adjustTokenBalance(to, id, amount, true)
+                    _adjustTokenBalance(to, id, amount, true)
                 }
 
                 if gt(extcodesize(to), 0) {
@@ -191,11 +176,11 @@ object "ERC1155" {
 
                 let dataLength := 0//decodeAsUint(5)
 
-                let toSlot := balancesByTokenSlot(to, id)
-                let toBalance := sload(toSlot)
-
                 //update balances
                 sstore(fromSlot, sub(fromBalance, amount))
+
+                let toSlot := balancesByTokenSlot(to, id)
+                let toBalance := sload(toSlot)
                 sstore(toSlot, safeAdd(toBalance, amount))
 
                 //if to is a contract, then check if the onReceiveHook responds correctly
@@ -206,7 +191,6 @@ object "ERC1155" {
                 emitTransferSingle(caller(), from, to, id, amount)
             }
 
-            //function safeBatchTransferFrom(address from, address to, uint256[] memory ids, uint256[] memory amounts, bytes memory data)
             function safeBatchTransferFrom() {
                 let from := decodeAsAddress(0)
                 let to := decodeAsAddress(1)
@@ -234,11 +218,10 @@ object "ERC1155" {
                     let fromBalance := sload(fromSlot)
     
                     requireWithMessage(gt(fromBalance, amount), "insufficient balance", 20)
-    
+        
+                    sstore(fromSlot, safeSub(fromBalance, amount))
                     let toSlot := balancesByTokenSlot(to, id)
                     let toBalance := sload(toSlot)
-    
-                    sstore(fromSlot, safeSub(fromBalance, amount))
                     sstore(toSlot, safeAdd(toBalance, amount))
                 }
 
@@ -286,35 +269,10 @@ object "ERC1155" {
                     let id := calldataload(add(idsOffset, mul(i, 0x20)))
                     let amount := calldataload(add(amountsOffset, mul(i, 0x20)))
 
-                    adjustTokenBalance(from, id, amount, false)
+                    _adjustTokenBalance(from, id, amount, false)
                 }
 
                 emitTransferBatch(caller(), from, 0, numberOfIds, idsOffset, amountsOffset)
-            }
-
-            function emitTransferBatch(operator, from, to, numberOfIds, idsOffset, amountOffset) {
-                //event TransferBatch(address indexed _operator, address indexed _from, address indexed _to, uint256[] _ids, uint256[] _values);
-                let signatureHash := 0x4a39dc06d4c0dbc64b70af90fd698a233a518aa5d07e595d983b8c0526c8f7fb
-                let idsOffsetInEvent := 0x40
-                let amountsOffsetInEvent := add(mul(numberOfIds, 0x20), 0x40)
-                mstore(0x00, 0x40)
-                mstore(idsOffsetInEvent, numberOfIds) //length of array
-                mstore(0x20, amountsOffsetInEvent)
-                mstore(amountsOffsetInEvent, numberOfIds)
-
-                idsOffsetInEvent := add(idsOffsetInEvent, 0x20)
-                amountsOffsetInEvent := add(amountsOffsetInEvent, 0x20)
-
-                for { let j := 0 } lt(j, numberOfIds) { j:= add(j, 1) } {
-                    let id := calldataload(add(idsOffset, mul(j, 0x20)))
-                    let amount := calldataload(add(amountOffset, mul(j, 0x20)))
-                    mstore(add(idsOffsetInEvent, mul(j, 0x20)), id)
-                    mstore(add(amountsOffsetInEvent, mul(j, 0x20)), amount)
-                }
-
-                let dataLength := mul(add(mul(numberOfIds, 0x20),0x40),2)
-
-                log4(0x00, dataLength, signatureHash, caller(), from, to)
             }
 
             function setApprovalForAll(operator, approved) {
@@ -329,6 +287,21 @@ object "ERC1155" {
                 revertIfZeroAddress(operator)
                 b := sload(calculateApprovedForAllSlot(owner_, operator))
                 //return (0x00,0x20)
+            }
+
+            /* ---------- internal functions --------- */
+
+            function _adjustTokenBalance(ownerOfToken, id, amount, increaseBalance) {
+                let slotForToken := balancesByTokenSlot(ownerOfToken, id)
+                let currentBalance :=  sload(slotForToken)
+                let newBalance := 0
+                if increaseBalance {
+                    newBalance := safeAdd(currentBalance, amount)
+                }
+                if eq(increaseBalance, false) {                    
+                    newBalance := safeSub(currentBalance, amount)
+                }
+                sstore(slotForToken, newBalance)
             }
 
             //TODO: the ids and amounts have to be copied over to data fields
@@ -349,7 +322,6 @@ object "ERC1155" {
                 let returnedData := decodeAsSelector(mload(0x00))
                 requireWithMessage(eq(returnedData, validatorHookInterface), "returned selector didnt match", 29)
             }
-
 
             function _checkIfValidReceiverForSingle(operator, from, to, id, amount, bytesOffset) {
                 let validatorHookInterface := 0xf23a6e61
@@ -394,6 +366,30 @@ object "ERC1155" {
                 log3(0x00, 0x20, signatureHash, owner_, operator)
             }
 
+            //event TransferBatch(address indexed _operator, address indexed _from, address indexed _to, uint256[] _ids, uint256[] _values);
+            function emitTransferBatch(operator, from, to, numberOfIds, idsOffset, amountOffset) {
+                let signatureHash := 0x4a39dc06d4c0dbc64b70af90fd698a233a518aa5d07e595d983b8c0526c8f7fb
+                let idsOffsetInEvent := 0x40
+                let amountsOffsetInEvent := add(mul(numberOfIds, 0x20), 0x60)
+                mstore(0x00, 0x40)
+                mstore(idsOffsetInEvent, numberOfIds) //length of array
+                mstore(0x20, amountsOffsetInEvent)
+                mstore(amountsOffsetInEvent, numberOfIds)
+
+                idsOffsetInEvent := add(idsOffsetInEvent, 0x20)
+                amountsOffsetInEvent := add(amountsOffsetInEvent, 0x20)
+
+                for { let j := 0 } lt(j, numberOfIds) { j:= add(j, 1) } {
+                    let id := calldataload(add(idsOffset, mul(j, 0x20)))
+                    let amount := calldataload(add(amountOffset, mul(j, 0x20)))
+                    mstore(add(idsOffsetInEvent, mul(j, 0x20)), id)
+                    mstore(add(amountsOffsetInEvent, mul(j, 0x20)), amount)
+                }
+
+                let dataLength := mul(add(mul(numberOfIds, 0x20),0x40),2)
+
+                log4(0x00, dataLength, signatureHash, caller(), from, to)
+            }
 
             /* -------- storage layout ---------- */
             function ownerSlot() -> p { p := 0 }
@@ -453,7 +449,6 @@ object "ERC1155" {
                 returnUint(1)
             }
 
-
             /* ---------- utility functions ---------- */
             function lte(a, b) -> r {
                 r := iszero(gt(a, b))
@@ -484,11 +479,11 @@ object "ERC1155" {
                 if gt(mod(length,0x20),0) {
                     numberOfWords := add(numberOfWords, 1)
                 }
-            }            
+            }
 
             function revertWithReason(reason, reasonLength) {
-                let ptr := 0x00
-                mstore(ptr, 0x08c379a000000000000000000000000000000000000000000000000000000000) // Selector for method Error(string)
+                let ptr := 0x00 //since we are going to abort, can use memory at 0x00
+                mstore(ptr, shl(0xe0,0x08c379a)) // Selector for method Error(string)
                 mstore(add(ptr, 0x04), 0x20) // String offset
                 mstore(add(ptr, 0x24), reasonLength) // Revert reason length
                 mstore(add(ptr, 0x44), reason)
@@ -502,60 +497,72 @@ object "ERC1155" {
                  }
             }
 
-            //restricted to a string literal
-            function logToConsole(memPtr, message, lengthOfMessage) {
-                //let memPtr := 0
-                let startPos := memPtr
-                mstore(memPtr, shl(0xe0,0x0bb563d6))
-                memPtr := add(memPtr, 0x04) //selector
-                mstore(memPtr, 0x20)
-                memPtr := add(memPtr, 0x20) //offset
-                mstore(memPtr, lengthOfMessage)        //length
-                memPtr := add(memPtr, 0x20) 
-                mstore(memPtr, message)
-                pop(staticcall(gas(), 0x000000000000000000636F6e736F6c652e6c6f67, startPos, 0x64, 0x00, 0x00))
+            /* ------------ log to console ----------- */
+
+            function logToConsoleTests() {
+                // logToConsole(0x00, "This is the first message", 25)
+                // logToConsoleNumber(0x00, calldatasize())
+                // logAddress(0xe0, caller())
+                logCalldataWrapped(0x00, 0x00, calldatasize())
             }
 
-            function logCallData(memPtr, offset, length) {
-                let startPos := memPtr
-                mstore(memPtr, shl(0xe0, 0xe17bf956))
-                memPtr := add(memPtr, 0x04)     //selector
-                mstore(memPtr, 0x20)
-                memPtr := add(memPtr, 0x20)     //offset of logging call
-                mstore(memPtr, length)    //length of data to log
-                memPtr := add(memPtr, 0x20) 
-                calldatacopy(memPtr, offset, length)
-                pop(staticcall(gas(), 0x000000000000000000636F6e736F6c652e6c6f67, startPos, add(0x44,length), 0x00, 0x00))
+            //restricted to a string literal
+            function logString(memPtr, message, lengthOfMessage) {
+                mstore(memPtr, shl(0xe0,0x0bb563d6))        //selector
+                mstore(add(memPtr, 0x04), 0x20)             //offset
+                mstore(add(memPtr, 0x24), lengthOfMessage)  //length
+                mstore(add(memPtr, 0x44), message)          //data
+                pop(staticcall(gas(), 0x000000000000000000636F6e736F6c652e6c6f67, memPtr, 0x64, 0x00, 0x00))
             }
+
+            function logCalldata(memPtr, offset, length) {
+                mstore(memPtr, shl(0xe0, 0xe17bf956))
+                mstore(add(memPtr, 0x04), 0x20)
+                mstore(add(memPtr, 0x24), length)
+                calldatacopy(add(memPtr, 0x44), offset, length)
+                let dataLengthRoundedToWord := roundToWord(length)
+                
+                pop(staticcall(gas(), 0x000000000000000000636F6e736F6c652e6c6f67, memPtr, mul(0x20,add(dataLengthRoundedToWord, 2)), 0x00, 0x00))
+            }
+
+            function logCalldataWrapped(memPtr, offset, length) {
+                //the "request header" remains the same, we keep
+                //sending 32 bytes to the console contract
+                mstore(memPtr, shl(0xe0, 0xe17bf956))
+                mstore(add(memPtr, 0x04), 0x20)
+                mstore(add(memPtr, 0x24), 0x20)
+
+                let dataLengthRoundedToWord := roundToWord(calldatasize())                
+                let calldataOffset := 0x00
+                
+                for { let i := 0 } lt(i, dataLengthRoundedToWord) { i:= add(i, 1) } {
+                    calldataOffset := mul(i, 0x20)
+                    calldatacopy(add(memPtr, 0x44), calldataOffset, 0x20)
+                    pop(staticcall(gas(), 0x000000000000000000636F6e736F6c652e6c6f67, memPtr, 0x64, 0x00, 0x00))
+                }
+            }
+
 
             function logAddress(memPtr, addressValue) {
-                let startPos := memPtr
                 mstore(memPtr, shl(0xe0, 0xe17bf956))
-                memPtr := add(memPtr, 0x04)     //selector
-                mstore(memPtr, 0x20)
-                memPtr := add(memPtr, 0x20)     //offset of logging call
-                mstore(memPtr, 0x20)    //length of data to log
-                memPtr := add(memPtr, 0x20) 
-                mstore(memPtr, addressValue)
-                pop(staticcall(gas(), 0x000000000000000000636F6e736F6c652e6c6f67, startPos, add(0x44,0x20), 0x00, 0x00))
+                mstore(add(memPtr, 0x04), 0x20)
+                mstore(add(memPtr, 0x24), 0x20)
+                mstore(add(memPtr, 0x44), addressValue)
+                pop(staticcall(gas(), 0x000000000000000000636F6e736F6c652e6c6f67, memPtr, 0x64, 0x00, 0x00))
             }
 
             function logMemory(memPtr, startingPointInMemory, length) {
                 mstore(memPtr, shl(0xe0, 0xe17bf956))
-                memPtr := add(memPtr, 0x04)     //selector
-                mstore(memPtr, 0x20)
-                memPtr := add(memPtr, 0x20)     //offset of logging call
-                mstore(memPtr, length)    //length of data to log
-                memPtr := add(memPtr, 0x20) 
-                pop(staticcall(gas(), 0x000000000000000000636F6e736F6c652e6c6f67, startingPointInMemory, add(0x44,length), 0x00, 0x00))
+                mstore(add(memPtr, 0x04), 0x20)
+                mstore(add(memPtr, 0x24), length)
+                let dataLengthRoundedToWord := roundToWord(length)
+                pop(staticcall(gas(), 0x000000000000000000636F6e736F6c652e6c6f67, startingPointInMemory, add(0x44, dataLengthRoundedToWord), 0x00, 0x00))
             }
-
-            function logToConsoleNumber(memPtr, _number) {
-                let startPos := memPtr
+            
+            function logNumber(memPtr, _number) {
                 mstore(memPtr, shl(0xe0,0x9905b744))
-                memPtr := add(memPtr, 0x04) //selector
-                mstore(memPtr, _number)
-                pop(staticcall(gas(), 0x000000000000000000636F6e736F6c652e6c6f67, startPos, 0x24, 0x00, 0x00))
+                mstore(add(memPtr, 0x04), _number)
+                pop(staticcall(gas(), 0x000000000000000000636F6e736F6c652e6c6f67, memPtr, 0x24, 0x00, 0x00))
             }
 
             //utility function for saving strings

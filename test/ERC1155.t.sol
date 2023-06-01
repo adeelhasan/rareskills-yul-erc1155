@@ -132,7 +132,7 @@ contract ERC1155Test is Test {
         contractWrapper.mint(testAccount1, 2, 40);
         contractWrapper.mint(testAccount1, 3, 60);
 
-        vm.expectEmit(true, true, true, false);
+        vm.expectEmit(true, true, true, true);
         emit TransferBatch(address(contractWrapper), testAccount1, testAccount2, ids, amounts);
         contractWrapper.safeBatchTransferFrom(testAccount1, testAccount2, ids, amounts, "");
         require(contractWrapper.balanceOf(testAccount2, 1) == 10, "balance not as expected");
@@ -233,6 +233,34 @@ contract ERC1155Test is Test {
         require(contractWrapper.balanceOf(testAccount1, 3) == 27, "balance not as expected");
     }
 
+    function testFailNonOwnerBurn() public {
+        contractWrapper.mint(testAccount2, 1, 20);
+
+        bytes memory callDataBytes = abi.encodeWithSignature("burn(address,uint256,uint256)", testAccount2, 1, 10);
+        (bool success, ) = address(erc1155Contract).call{gas: 100000, value: 0}(callDataBytes);
+        require(success, "burn failed");
+    }
+
+    function testFailIfNonOwnerBurnBatch() public {
+        contractWrapper.mint(testAccount1, 1, 20);
+        contractWrapper.mint(testAccount1, 2, 40);
+        contractWrapper.mint(testAccount1, 3, 60);
+
+        uint256 numberOfElements = 3;
+        uint256[] memory ids_ = new uint256[](numberOfElements);
+        ids_[0] = 1;
+        ids_[1] = 2;
+        ids_[2] = 3;
+        uint256[] memory amounts_ = new uint256[](numberOfElements);
+        amounts_[0] = 5;
+        amounts_[1] = 25;
+        amounts_[2] = 33;
+
+        bytes memory callDataBytes = abi.encodeWithSignature("burnBatch(address,uint256[],uint256[])", testAccount1, ids_, amounts_);
+        (bool success, ) = address(erc1155Contract).call{gas: 100000, value: 0}(callDataBytes);
+        require(success, "burn batch failed");
+    }
+
     function testSetApprovalForAll() public {
         contractWrapper.mint(testAccount2, 1, 20);
 
@@ -268,7 +296,31 @@ contract ERC1155Test is Test {
         bytes memory callDataBytes = abi.encodeWithSignature("burn(address,uint256,uint256)", testAccount2, 1, 40);
         (bool success, ) = address(erc1155Contract).call{gas: 100000, value: 0}(callDataBytes);
         require(success, "burn failed");
-    }    
+    }
+
+    function testTransferToSelf() public {
+        contractWrapper.mint(testAccount1, 1, 20);
+        contractWrapper.safeTransferFrom(testAccount1, testAccount1, 1, 10, "");
+
+        require(contractWrapper.balanceOf(testAccount1, 1) == 20, "should be zero sum");
+    }
+
+    function testTransferBatchToSelf() public {
+        contractWrapper.mint(testAccount1, 1, 20);
+        contractWrapper.mint(testAccount1, 2, 40);
+        contractWrapper.mint(testAccount1, 3, 60);
+
+        vm.expectEmit(true, true, true, true);
+        emit TransferBatch(address(contractWrapper), testAccount1, testAccount1, ids, amounts);
+        contractWrapper.safeBatchTransferFrom(testAccount1, testAccount1, ids, amounts, "");
+        require(contractWrapper.balanceOf(testAccount1, 1) == 20, "balance not as expected");
+        require(contractWrapper.balanceOf(testAccount1, 2) == 40, "balance not as expected");
+        require(contractWrapper.balanceOf(testAccount1, 3) == 60, "balance not as expected");
+    }
+
+    function testLogToConsole() public {
+        contractWrapper.logToConsoleTests("abcdefgh",56, ids);
+    }
 
 }
 
